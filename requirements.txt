@@ -1,0 +1,4 @@
+pydantic==2.13.4
+faker
+beautifulsoup4
+python-dotenv

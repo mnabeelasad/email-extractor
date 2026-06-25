@@ -1,0 +1,17 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets - never commit your API key or email password
+.env
+
+# Client data — never goes to git (confidential)
+data/**/*.json
+data/**/*.txt
+data/**/*.log
+
+# Keep the data folder itself (so Ubuntu pull works)
+!data/
+!data/.gitkeep

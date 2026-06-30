@@ -1,7 +1,7 @@
 """
 classify.py
 -----------
-Step 1 - the cheap gate. BEFORE the expensive extraction, we ask the model a
+Step 1 - the cheap gate. Before the expensive extraction, ask the model a
 one-word question: does this email actually contain medical-device data?
 
   NO  -> skip the email (don't waste an extraction call)
@@ -13,8 +13,6 @@ lose real client data - the worst outcome. So we always lean towards YES.
 """
 
 from llm import generate
-
-MODEL = "qwen2.5:32b"
 
 
 def build_classifier_prompt(email_text: str) -> str:
@@ -38,12 +36,7 @@ EMAIL:
 """
 
 
-def call_gemini_raw(prompt: str) -> str:
-    # only need one word back, so a tiny output limit is enough
-    return generate(model=MODEL, prompt=prompt, max_output_tokens=5)
-
-
 def is_device_data_email(email_text: str) -> bool:
-    answer = call_gemini_raw(build_classifier_prompt(email_text)).strip().upper()
+    answer = generate(build_classifier_prompt(email_text), max_output_tokens=5).strip().upper()
     # Lean towards YES: only a clean "NO" counts as NO.
     return not answer.startswith("NO")

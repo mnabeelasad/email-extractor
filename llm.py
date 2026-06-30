@@ -4,12 +4,10 @@ llm.py
 Talks to the local Ollama server (Qwen) and returns plain text.
 
 Everything runs on the RTX machine where Ollama is already running, so we
-just use localhost. No cloud, no API key, no quota, unlimited calls, and
-the data never leaves the machine.
+use localhost. No cloud, no API key, no quota, unlimited calls, and the
+data never leaves the machine.
 
-Settings (from .env, with sensible defaults):
-    OLLAMA_URL=http://localhost:11434
-    OLLAMA_MODEL=qwen2.5:32b
+The model name comes from .env (OLLAMA_MODEL), default qwen2.5:32b.
 """
 
 import os
@@ -18,18 +16,22 @@ import time
 import urllib.request
 import urllib.error
 
+from dotenv import load_dotenv
+load_dotenv()
+
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+MODEL      = os.environ.get("OLLAMA_MODEL", "qwen2.5:32b")   # one place controls the model
+
 MAX_TRIES = 3
 BASE_WAIT_SECONDS = 3
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
-
-def generate(model: str, prompt: str, max_output_tokens: int) -> str:
-    """Send a prompt to local Qwen via Ollama and return the text response."""
+def generate(prompt: str, max_output_tokens: int) -> str:
+    """Send a prompt to the local model via Ollama and return the text response."""
     url = f"{OLLAMA_URL}/api/generate"
 
     payload = json.dumps({
-        "model": model,
+        "model": MODEL,
         "prompt": prompt,
         "stream": False,
         "options": {
@@ -40,8 +42,7 @@ def generate(model: str, prompt: str, max_output_tokens: int) -> str:
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        url,
-        data=payload,
+        url, data=payload,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -61,5 +62,5 @@ def generate(model: str, prompt: str, max_output_tokens: int) -> str:
 
     raise RuntimeError(
         f"Ollama did not respond after {MAX_TRIES} tries. "
-        f"Is Ollama running at {OLLAMA_URL}?  (try: ollama list)\nError: {last_error}"
+        f"Is Ollama running at {OLLAMA_URL}? (try: ollama list)\nError: {last_error}"
     ) from last_error

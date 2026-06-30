@@ -1,89 +1,23 @@
 """
 extract.py
 ----------
-Step 2 test: take ONE email, send it to Gemini, get back the filled-in
-device form, and save it as a JSON "source of truth" file.
+Takes one email, sends it to the local model (Qwen via Ollama), and returns
+the filled-in device form as a validated DeviceInfo object.
 
-For now the email is HARDCODED below (the TEST_EMAIL variable). Once this
-works, we replace that variable with a real email read from the mailbox.
-
-HOW TO RUN (on your no-GPU machine):
-    pip install -r requirements.txt
-    export GEMINI_API_KEY="your-key-here"      # Windows: set GEMINI_API_KEY=...
-    python extract.py
+Rule: extract ONLY what is explicitly written in the email. Never invent
+values, especially regulatory IDs (SRN, UDI, codes) - those stay null.
 """
 
-import os
 import json
-from pathlib import Path
 
 from llm import generate
-
 from schema import DeviceInfo
-
-
-# Local Qwen model running on Ollama (RTX machine).
-MODEL = "qwen2.5:32b"
-
-# Where the source-of-truth file for client KWP is written.
-OUTPUT_PATH = Path("data/KWP/device_info.json")
-
-
-# ----------------------------------------------------------------------
-# THE TEST EMAIL  (later: replaced by a real email from the mailbox)
-# ----------------------------------------------------------------------
-TEST_EMAIL = """\
-Subject: Device information for technical documentation - AeroFlow X200
-
-Dear Mr. Schmidt,
-
-As discussed, here are the initial device details for our nebulizer so you
-can begin the technical documentation. A few items (the regulatory IDs and
-the full code list) are still being finalised internally - we will send those
-in a follow-up email next week.
-
-Manufacturer: KWP Medizintechnik GmbH, Industriestrasse 14, 33602 Bielefeld, Germany
-
-Product: AeroFlow X200 portable mesh nebulizer
-Article number: REF 88421
-
-Description: The AeroFlow X200 is a portable, battery-powered mesh nebulizer
-that turns liquid medication into a fine aerosol for inhalation. It is intended
-for both home and clinical use.
-
-Intended purpose: To deliver prescribed inhalation medication to patients who
-require aerosol therapy for respiratory conditions.
-
-Indications: Treatment of asthma, COPD and other respiratory conditions that
-require aerosolised medication, as prescribed by a physician.
-
-Contraindications: Must not be used with medications that are not approved for
-nebulisation.
-
-We classify the device as Class IIa under Rule 11.
-
-There are two variants:
-- AeroFlow X200 (REF 88421) - standard version
-- AeroFlow X200P (REF 88422) - paediatric version with a smaller mask
-
-Intended users: patients (including at home) and healthcare professionals. The
-paediatric variant is for use on children under adult supervision.
-
-Please note: the SRN, the Basic UDI-DI and the EMDN/GMDN codes are not yet
-assigned on our side. We will provide these in the next email.
-
-Best regards,
-Maria Hoffmann
-Regulatory Affairs, KWP Medizintechnik GmbH
-"""
 
 
 # ----------------------------------------------------------------------
 # 1) Build the instruction (prompt) we send to the model
 # ----------------------------------------------------------------------
 def build_prompt(email_text: str) -> str:
-    # We show the model the exact JSON shape we want back (an inline template),
-    # and we are very strict about NOT inventing anything.
     json_template = """{
   "manufacturer": null,
   "srn": null,
@@ -138,60 +72,38 @@ EMAIL:
 
 
 # ----------------------------------------------------------------------
-# 2) Send the prompt to Gemini and get the raw text back (with auto-retry)
+# 2) Send the prompt to the model and get the raw text back
 # ----------------------------------------------------------------------
-def call_gemini(prompt: str) -> str:
-    return generate(model=MODEL, prompt=prompt, max_output_tokens=8192)
+def call_model(prompt: str) -> str:
+    return generate(prompt, max_output_tokens=8192)
 
 
 # ----------------------------------------------------------------------
 # 3) Turn the model's text into a validated DeviceInfo form
 # ----------------------------------------------------------------------
 def parse_model_output(raw: str) -> DeviceInfo:
-    # Models sometimes wrap JSON in ```json ... ``` fences. Strip them.
     cleaned = raw.strip()
+
+    # Some models wrap JSON in ```json ... ``` fences. Strip them.
     if cleaned.startswith("```"):
-        cleaned = cleaned.split("```", 2)[1]          # take the fenced part
+        cleaned = cleaned.split("```", 2)[1]
         if cleaned.lstrip().startswith("json"):
             cleaned = cleaned.lstrip()[4:]
         cleaned = cleaned.strip().rstrip("`").strip()
 
+    # Some models add text around the JSON; keep only the {...} block.
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1:
+        cleaned = cleaned[start:end + 1]
+
     try:
-        data = json.loads(cleaned)      # text -> Python dict
+        data = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        # Show what the model actually returned, so the problem is easy to see
-        # (most common cause: the answer was cut off = raise max_output_tokens).
         print("\n--- Could not parse the model's answer as JSON ---")
         print(f"Error: {e}")
         print("Raw answer from the model was:\n")
         print(raw)
         print("\n--------------------------------------------------")
         raise
-    return DeviceInfo(**data)           # dict -> validated form (Pydantic checks it)
-
-
-# ----------------------------------------------------------------------
-# 4) Save the form as the JSON source of truth
-# ----------------------------------------------------------------------
-def save_source_of_truth(device: DeviceInfo, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(device.model_dump_json(indent=2), encoding="utf-8")
-
-
-def main():
-    print(f"Model: {MODEL}")
-    prompt = build_prompt(TEST_EMAIL)
-
-    print("Sending the email to Gemini...")
-    raw = call_gemini(prompt)
-
-    print("Parsing and validating the answer...")
-    device = parse_model_output(raw)
-
-    save_source_of_truth(device, OUTPUT_PATH)
-    print(f"\nDone. Source of truth saved to: {OUTPUT_PATH}\n")
-    print(device.model_dump_json(indent=2))
-
-
-if __name__ == "__main__":
-    main()
+    return DeviceInfo(**data)
